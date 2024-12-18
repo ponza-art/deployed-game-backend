@@ -97,110 +97,99 @@ class SurvivalPathGame {
     if (room.currentTurn !== playerId) return { error: "Not your turn!" };
 
     if (player.skipped) {
-      player.skipped = false;
-      this.updateTurn(roomId);
-      return { message: "Turn skipped due to penalty!" };
+        player.skipped = false;
+        this.updateTurn(roomId);
+        return { message: "Turn skipped due to penalty!" };
     }
 
     let pointsGained = 0;
+    let actionMessage = `${player.username} played ${card.effect}`;
 
-    // Game logic (same as in your code)
+    // Game logic
     switch (card.type) {
-      case "Move":
-        player.position = Math.min(20, player.position + card.value);
-        pointsGained = card.value;
-        break;
-      case "Penalty":
-        switch (card.effect) {
-          case "Step Back":
-            player.position = Math.max(0, player.position + card.value);
-            break;
-          case "Lose Points":
-            player.points += card.value;
-            break;
-          case "Skip Turn":
-            player.skipped = true;
-            break;
-          case "Reverse Movement":
-            player.reverse = !player.reverse;
-            break;
-          case "Force Discard":
-            player.hand.pop();
-            break;
-        }
-        break;
-      case "Bonus":
-        switch (card.effect) {
-          case "Gain Points":
-            player.points += card.value;
-            break;
-          case "Extra Move":
+        case "Move":
             player.position = Math.min(20, player.position + card.value);
             pointsGained = card.value;
+            actionMessage += ` and moved forward ${card.value} steps.`;
             break;
-          case "Draw Cards":
-            player.hand.push(this.drawCard(room), this.drawCard(room));
-            break;
-          case "Double Move":
-            player.position = Math.min(20, player.position + (card.value || 1) * 2);
-            pointsGained = (card.value || 1) * 2;
-            break;
-          case "Give Card":
-            if (targetPlayer) {
-              targetPlayer.hand.push(this.drawCard(room));
+        case "Penalty":
+            switch (card.effect) {
+                case "Step Back":
+                    player.position = Math.max(0, player.position + card.value);
+                    actionMessage += ` and stepped back ${-card.value} steps.`;
+                    break;
+                case "Lose Points":
+                    player.points += card.value;
+                    actionMessage += ` and lost ${-card.value} points.`;
+                    break;
+                case "Skip Turn":
+                    player.skipped = true;
+                    actionMessage += ` and will skip their next turn.`;
+                    break;
+                case "Reverse Movement":
+                    player.reverse = !player.reverse;
+                    actionMessage += ` and reversed their movement.`;
+                    break;
             }
             break;
-        }
-        break;
-      case "Event":
-        switch (card.effect) {
-          case "Swap Places":
-            if (targetPlayer) {
-              const temp = player.position;
-              player.position = targetPlayer.position;
-              targetPlayer.position = temp;
+        case "Bonus":
+            switch (card.effect) {
+                case "Gain Points":
+                    player.points += card.value;
+                    actionMessage += ` and gained ${card.value} points.`;
+                    break;
+                case "Extra Move":
+                    player.position = Math.min(20, player.position + card.value);
+                    pointsGained = card.value;
+                    actionMessage += ` and moved ${card.value} extra steps.`;
+                    break;
+                case "Draw Cards":
+                    player.hand.push(this.drawCard(room), this.drawCard(room));
+                    actionMessage += ` and drew 2 extra cards.`;
+                    break;
             }
             break;
-          case "Shuffle Board":
-            room.board = this.shuffleCards(room.board);
-            break;
-          case "Free Move":
-            player.position = Math.min(20, player.position + card.value);
-            pointsGained = card.value;
-            break;
-          case "Draw Card for Everyone":
-            for (const pId in room.players) {
-              room.players[pId].hand.push(this.drawCard(room));
+        case "Event":
+            switch (card.effect) {
+                case "Swap Places":
+                    if (targetPlayer) {
+                        const temp = player.position;
+                        player.position = targetPlayer.position;
+                        targetPlayer.position = temp;
+                        actionMessage += ` and swapped positions with ${targetPlayer.username}.`;
+                    }
+                    break;
+                case "Draw Card for Everyone":
+                    for (const pId in room.players) {
+                        room.players[pId].hand.push(this.drawCard(room));
+                    }
+                    actionMessage += ` and everyone drew 1 card.`;
+                    break;
             }
             break;
-          case "Bonus Round":
-            // Implement bonus round logic here
-            break;
-        }
-        break;
-      case "Mind Play":
-        switch (card.effect) {
-          case "Discard Opponent Card":
-            if (targetPlayer && targetPlayer.hand.length > 0) {
-              targetPlayer.hand.pop();
+        case "Mind Play":
+            switch (card.effect) {
+                case "Discard Opponent Card":
+                    if (targetPlayer && targetPlayer.hand.length > 0) {
+                        targetPlayer.hand.pop();
+                        actionMessage += ` and made ${targetPlayer.username} discard a card.`;
+                    }
+                    break;
+                case "Steal Points":
+                    if (targetPlayer) {
+                        player.points += card.value;
+                        targetPlayer.points -= card.value;
+                        actionMessage += ` and stole ${card.value} points from ${targetPlayer.username}.`;
+                    }
+                    break;
+                case "Skip Opponent Turn":
+                    if (targetPlayer) {
+                        targetPlayer.skipped = true;
+                        actionMessage += ` and skipped ${targetPlayer.username}'s next turn.`;
+                    }
+                    break;
             }
             break;
-          case "Skip Opponent Turn":
-            if (targetPlayer) {
-              targetPlayer.skipped = true;
-            }
-            break;
-          case "Steal Points":
-            if (targetPlayer) {
-              player.points += card.value;
-              targetPlayer.points -= card.value;
-            }
-            break;
-          case "Block Move":
-            // Implement block move logic here
-            break;
-        }
-        break;
     }
 
     player.points += pointsGained;
@@ -208,37 +197,47 @@ class SurvivalPathGame {
     player.hand.push(this.drawCard(room));
 
     if (player.position >= 20) {
-      player.points += 50;
-      io.to(roomId).emit("gameState", game.getGameState(roomId));
-      return { winner: player.username, points: player.points };
+        player.points += 50;
+        io.to(roomId).emit("gameState", game.getGameState(roomId));
+        return { winner: player.username, points: player.points };
     }
 
     this.updateTurn(roomId);
-    return { success: true, pointsGained };
-  }
+    return { success: true, message: actionMessage };
+}
 
-  updateTurn(roomId) {
+updateTurn(roomId) {
     const room = this.rooms[roomId];
+    if (!room || Object.keys(room.players).length === 0) return;
+  
     const playerIds = Object.keys(room.players);
-
-    if (!room || playerIds.length === 0) return;
-
+    if (playerIds.length === 1) {
+      room.currentTurn = playerIds[0];
+      return; // Only one player, keep their turn
+    }
+  
     let currentIndex = playerIds.indexOf(room.currentTurn);
-
+    let nextTurnAssigned = false;
+  
     for (let i = 0; i < playerIds.length; i++) {
-      currentIndex = (currentIndex + 1) % playerIds.length;
+      currentIndex = (currentIndex + 1) % playerIds.length; // Move to the next player in a circular manner
       const nextPlayer = room.players[playerIds[currentIndex]];
-
+  
       if (!nextPlayer.skipped) {
         room.currentTurn = playerIds[currentIndex];
-        return;
+        nextTurnAssigned = true;
+        break;
       } else {
-        nextPlayer.skipped = false;
+        nextPlayer.skipped = false; // Reset skipped status for the next round
       }
     }
-
-    room.currentTurn = playerIds[0];
+  
+    // Fallback: If no eligible player is found, default to the first player
+    if (!nextTurnAssigned) {
+      room.currentTurn = playerIds[0];
+    }
   }
+  
 
   removeEmptyRooms() {
     for (const roomId in this.rooms) {
@@ -275,8 +274,13 @@ io.on("connection", (socket) => {
 
   socket.on("playCard", ({ roomId, card, targetId }) => {
     const result = game.playCard(roomId, socket.id, card, targetId);
-    io.to(roomId).emit("gameState", { ...game.getGameState(roomId), result });
-  });
+    if (result.error) {
+        socket.emit("actionError", result.error);
+    } else {
+        io.to(roomId).emit("gameState", { ...game.getGameState(roomId), lastAction: result.message });
+    }
+});
+
 
   socket.on("disconnect", () => {
     for (const roomId in game.rooms) {
