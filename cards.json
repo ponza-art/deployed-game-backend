@@ -1,0 +1,7 @@
+[
+    { "type": "Move", "effect": "Move 1 Step", "value": 1 },
+    { "type": "Move", "effect": "Move 2 Steps", "value": 2 },
+    { "type": "Move", "effect": "Move 3 Steps", "value": 3 },
+    { "type": "Move", "effect": "Move 4 Steps", "value": 4 }
+  ]
+   
