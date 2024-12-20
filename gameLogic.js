@@ -1,5 +1,5 @@
-const fs = require("fs");
-const path = require("path");
+const fs = require('fs');
+const path = require('path');
 
 class SurvivalPathGame {
   constructor() {
@@ -9,15 +9,16 @@ class SurvivalPathGame {
   }
 
   loadCards() {
-    const filePath = path.resolve(__dirname, "cards.json");
-    return JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    const filePath = path.resolve(__dirname, 'cards.json');
+    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
   }
 
   setup() {
+    const cardDeck = this.shuffleDeck([...this.cards]);
     return {
       players: {},
       board: Array(20).fill(null),
-      cardDeck: this.shuffleDeck([...this.cards]),
+      cardDeck,
       turn: 0,
       turnOrder: [],
       currentTurn: null,
@@ -90,13 +91,15 @@ class SurvivalPathGame {
 
     if (player.position >= 20) {
       room.gameState.winner = playerId;
-      clearInterval(room.timerInterval);
+      clearInterval(room.timerInterval); // Stop the timer
       return { message: `🎉 ${player.username} has won the game!` };
     }
 
     this.endTurn(roomId);
+
     return {
       message: `${player.username} moved to position ${player.position}.`,
+      hand: player.hand,
     };
   }
 
@@ -106,6 +109,7 @@ class SurvivalPathGame {
     for (let i = 0; i < count; i++) {
       if (room.gameState.cardDeck.length === 0) {
         room.gameState.cardDeck = this.shuffleDeck([...this.cards]);
+        console.log("Deck reset and shuffled:", room.gameState.cardDeck);
       }
       cards.push(room.gameState.cardDeck.pop());
     }
@@ -132,6 +136,7 @@ class SurvivalPathGame {
       io.to(roomId).emit("timerUpdate", { timer: room.gameState.timer });
 
       if (room.gameState.timer <= 0) {
+        clearInterval(room.timerInterval);
         this.endTurn(roomId);
         io.to(roomId).emit("gameState", this.getGameState(roomId));
       }
@@ -144,7 +149,6 @@ class SurvivalPathGame {
     const nextTurnIndex = (currentTurnIndex + 1) % room.gameState.turnOrder.length;
     room.gameState.currentTurn = room.gameState.turnOrder[nextTurnIndex];
     room.gameState.turn++;
-    this.startTimer(roomId); // Restart timer for the next turn
   }
 
   getGameState(roomId) {
