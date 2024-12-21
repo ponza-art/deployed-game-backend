@@ -1,7 +1,12 @@
 [
-    { "type": "Move", "effect": "Move 1 Step", "value": 1 },
-    { "type": "Move", "effect": "Move 2 Steps", "value": 2 },
-    { "type": "Move", "effect": "Move 3 Steps", "value": 3 },
-    { "type": "Move", "effect": "Move 4 Steps", "value": 4 }
-  ]
-   
+  { "type": "Move", "effect": "Move 1 Step", "value": 1, "count": 5 },
+  { "type": "Move", "effect": "Move 2 Steps", "value": 2, "count": 5 },
+  { "type": "Move", "effect": "Move 3 Steps", "value": 3, "count": 4 },
+  { "type": "Move", "effect": "Move 4 Steps", "value": 4, "count": 3 },
+  { "type": "Move", "effect": "Move 5 Steps", "value": 5, "count": 3 },
+  { "type": "Event", "effect": "Swap Places", "value": 0, "count": 2 },
+  { "type": "Event", "effect": "Shuffle Board", "value": 0, "count": 2 },
+  { "type": "Event", "effect": "Free Move", "value": 4, "count": 2 },
+  { "type": "Event", "effect": "Draw 1 for Everyone", "value": 1, "count": 2 },
+  { "type": "Event", "effect": "Bonus Round", "value": 0, "count": 2 }
+]

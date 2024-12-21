@@ -9,4 +9,4 @@ const io = new Server(httpServer, { cors: { origin: "*" } });
 
 handleSocketConnection(io);
 
-httpServer.listen(8000, () => console.log("Server running on http://localhost:8000"));
+httpServer.listen(3000, () => console.log("Server running on http://localhost:3000"));
