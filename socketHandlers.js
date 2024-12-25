@@ -29,63 +29,61 @@ function handleSocketConnection(io) {
 
     socket.on("playCard", ({ roomId, cardIndex, targetPlayerId }) => {
         try {
+          // Handle playing a card, now including targeted player
           const result = game.playCard(roomId, socket.id, cardIndex, targetPlayerId);
           const roomState = game.getGameState(roomId);
-          const player = roomState.players[socket.id];
-          
+      
+          // Add additional context for event and mind play cards
           let eventDetails = null;
-          const playedCard = result.playedCard;
-          const targetPlayer = targetPlayerId ? roomState.players[targetPlayerId] : null;
-
-          switch (playedCard.type) {
-            case "Move":
-              eventDetails = `${player.username} moved ${playedCard.value} steps forward`;
-              break;
-
-            case "Event":
-              switch (playedCard.effect) {
-                case "Swap Places":
-                  eventDetails = `${player.username} swapped positions with another player`;
-                  break;
-                case "Shuffle Board":
-                  eventDetails = "All players' positions were shuffled";
-                  break;
-                case "Free Move":
-                  eventDetails = `${player.username} moved ${playedCard.value} steps for free`;
-                  break;
-                case "Draw 1 for Everyone":
-                  eventDetails = "Every player drew a card";
-                  break;
-                case "Bonus Round":
-                  eventDetails = `${player.username} gained 10 bonus points`;
-                  break;
-              }
-              break;
-
-            case "Mind Play":
-              switch (playedCard.effect) {
-                case "Discard Opponent Card":
-                  eventDetails = `${player.username} made ${targetPlayer.username} discard a card`;
-                  break;
-                case "Skip Opponent Turn":
-                  eventDetails = `${player.username} made ${targetPlayer.username} skip their next turn`;
-                  break;
-                case "Steal 5 Points":
-                  eventDetails = `${player.username} stole up to 5 points from ${targetPlayer.username}`;
-                  break;
-                case "Steal a Random Card from Opponent":
-                  eventDetails = `${player.username} stole a random card from ${targetPlayer.username}`;
-                  break;
-              }
-              break;
+          const playedCard = roomState.players[socket.id]?.hand[cardIndex];
+      
+          if (playedCard?.type === "Event") {
+            switch (playedCard.effect) {
+              case "Swap Places":
+                eventDetails = `Player ${socket.id} swapped places with another player.`;
+                break;
+              case "Shuffle Board":
+                game.shuffleBoard(roomId);
+                eventDetails = "The board positions were shuffled.";
+                break;
+              case "Free Move":
+                eventDetails = `Player ${socket.id} moved ${playedCard.value} steps for free.`;
+                break;
+              case "Draw 1 for Everyone":
+                eventDetails = "Each player drew 1 card.";
+                break;
+              case "Bonus Round":
+                eventDetails = `Player ${socket.id} earned a bonus round!`;
+                break;
+            }
+          } else if (playedCard?.type === "Mind Play") {
+            // Here, we implement the Mind Play card logic
+            const currentPlayer = roomState.players[socket.id];
+            const targetPlayer = roomState.players[targetPlayerId];
+      
+            if (currentPlayer && targetPlayer) {
+              // Example action: swap one card between players
+              const currentPlayerCard = currentPlayer.hand[cardIndex];
+              const targetPlayerCard = targetPlayer.hand[0]; // Let's assume the target's first card is swapped
+      
+              // Swap cards between players
+              currentPlayer.hand[cardIndex] = targetPlayerCard;
+              targetPlayer.hand[0] = currentPlayerCard; // Swapping with target's first card
+      
+              // Set the event details message
+              eventDetails = `Player ${socket.id} played a Mind Play card targeting ${targetPlayerId}. Cards swapped!`;
+            } else {
+              eventDetails = "Invalid target player!";
+            }
           }
-
+      
+          // Emit game state with last action and event details
           io.to(roomId).emit("gameState", {
-            ...roomState,
+            ...game.getGameState(roomId), // Ensure the latest state is sent
             lastAction: result.message,
             eventDetails,
           });
-
+      
         } catch (error) {
           socket.emit("actionError", { message: error.message });
         }

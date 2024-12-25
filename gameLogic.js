@@ -100,58 +100,53 @@ class SurvivalPathGame {
    */
   playCard(roomId, playerId, cardIndex, targetPlayerId = null) {
     const room = this.rooms[roomId];
-    const player = room.players[playerId];
+    if (!room) {
+      throw new Error(`Room with ID ${roomId} does not exist.`);
+    }
 
-    if (!room || !player) {
-      throw new Error("Invalid room or player");
+    const player = room.players[playerId];
+    if (!player) {
+      throw new Error(`Player with ID ${playerId} not found in room ${roomId}.`);
+    }
+
+    if (room.gameState.currentTurn !== playerId) {
+      throw new Error(`It's not your turn.`);
     }
 
     if (cardIndex < 0 || cardIndex >= player.hand.length) {
-      throw new Error("Invalid card index");
-    }
-
-    if (player.skipNextTurn) {
-      player.skipNextTurn = false;
-      throw new Error("You must skip this turn");
+      throw new Error(`Invalid card index.`);
     }
 
     const card = player.hand[cardIndex];
-    player.hand.splice(cardIndex, 1);
-
-    let actionResult = {
-      message: `${player.username} played ${card.effect}`,
-      playedCard: card
-    };
 
     if (card.type === "Move") {
       player.position += card.value;
       player.score += card.value;
-      actionResult.message = `${player.username} moved ${card.value} steps`;
     } else if (card.type === "Event") {
       this.handleEventCard(roomId, playerId, card);
-      actionResult.message = `${player.username} played ${card.effect}`;
     } else if (card.type === "Mind Play") {
-      if (!targetPlayerId) {
-        throw new Error("Target player is required for Mind Play cards");
+      if (!targetPlayerId || !room.players[targetPlayerId]) {
+        throw new Error(`Target player ID ${targetPlayerId} is invalid.`);
       }
       this.handleMindPlayCard(roomId, playerId, targetPlayerId, card);
-      actionResult.message = `${player.username} used ${card.effect}`;
     }
 
-    // Draw a new card
+    player.hand.splice(cardIndex, 1);
     const newCards = this.drawCards(roomId, 1);
     player.hand.push(...newCards);
 
-    // Check for win condition
     if (player.position >= room.gameState.board.length) {
       room.gameState.winner = playerId;
       clearInterval(room.timerInterval);
-      actionResult.message = `🎉 ${player.username} has won the game!`;
-    } else {
-      this.endTurn(roomId);
+      return { message: `🎉 ${player.username} has won the game!` };
     }
 
-    return actionResult;
+    this.endTurn(roomId);
+
+    return {
+      message: `${player.username} played a card.`,
+      hand: player.hand,
+    };
   }
 
   /**
@@ -166,48 +161,113 @@ class SurvivalPathGame {
 
     switch (card.effect) {
       case "Swap Places":
-        // Player chooses another player to swap with
-        const otherPlayers = Object.entries(room.players)
-          .filter(([id]) => id !== playerId);
-        if (otherPlayers.length > 0) {
-          const randomPlayer = otherPlayers[Math.floor(Math.random() * otherPlayers.length)][1];
-          const tempPosition = player.position;
-          player.position = randomPlayer.position;
-          randomPlayer.position = tempPosition;
-        }
+        this.swapPlaces(roomId, playerId);
         break;
-
       case "Shuffle Board":
-        // Randomly reassign all players to new positions
-        const positions = Object.values(room.players).map(p => p.position);
-        positions.sort(() => Math.random() - 0.5);
-        Object.values(room.players).forEach((p, i) => {
-          p.position = positions[i];
-        });
+        this.shuffleBoard(roomId);
         break;
-
       case "Free Move":
-        // Move forward 4 spaces without using a move card
         player.position += card.value;
-        player.score += card.value;
         break;
-
       case "Draw 1 for Everyone":
-        // Each player draws one card
-        Object.keys(room.players).forEach(pid => {
-          const newCards = this.drawCards(roomId, 1);
-          room.players[pid].hand.push(...newCards);
-        });
+        this.drawForEveryone(roomId);
         break;
-
       case "Bonus Round":
-        // Player gets 10 bonus points
-        player.score += 10;
+        this.giveBonusRound(player);
         break;
-
       default:
-        console.log(`Unknown Event card effect: ${card.effect}`);
+        console.log(`Unknown event card effect: ${card.effect}`);
     }
+  }
+
+  /**
+   * Swaps positions with a random other player.
+   * @param {string} roomId - The room ID.
+   * @param {string} playerId - The player ID.
+   */
+  swapPlaces(roomId, playerId) {
+    const room = this.rooms[roomId];
+    const player = room.players[playerId];
+
+    const otherPlayers = Object.values(room.players).filter(p => p !== player);
+    if (otherPlayers.length === 0) return;
+
+    const randomPlayer = otherPlayers[Math.floor(Math.random() * otherPlayers.length)];
+    const tempPosition = player.position;
+    player.position = randomPlayer.position;
+    randomPlayer.position = tempPosition;
+
+    console.log(`${player.username} swapped places with ${randomPlayer.username}.`);
+  }
+
+  /**
+   * Shuffles the game board.
+   * @param {string} roomId - The room ID.
+   */
+  shuffleBoard(roomId) {
+    const room = this.rooms[roomId];
+    if (!room || !room.gameState.board) {
+      throw new Error(`Board not found for room ${roomId}.`);
+    }
+
+    room.gameState.board.sort(() => Math.random() - 0.5);
+    console.log(`Board shuffled for room ${roomId}:`, room.gameState.board);
+  }
+
+  /**
+   * Draws cards for every player in the room.
+   * @param {string} roomId - The room ID.
+   */
+  drawForEveryone(roomId) {
+    const room = this.rooms[roomId];
+    Object.keys(room.players).forEach(playerId => {
+      const newCards = this.drawCards(roomId, 1);
+      room.players[playerId].hand.push(...newCards);
+    });
+    console.log("Each player drew 1 card.");
+  }
+
+  /**
+   * Gives a bonus round to a player.
+   * @param {Object} player - The player object.
+   */
+  giveBonusRound(player) {
+    player.score += 10;
+    console.log(`${player.username} received a bonus round with 10 points.`);
+  }
+
+  /**
+   * Draws a specified number of cards for a room.
+   * @param {string} roomId - The room ID.
+   * @param {number} count - The number of cards to draw.
+   * @returns {Array} The drawn cards.
+   */
+  drawCards(roomId, count) {
+    const room = this.rooms[roomId];
+    const cards = [];
+
+    for (let i = 0; i < count; i++) {
+      if (room.gameState.cardDeck.length === 0) {
+        room.gameState.cardDeck = this.shuffleDeck([...this.cards]);
+        console.log("Deck reset and shuffled:", room.gameState.cardDeck);
+      }
+      cards.push(room.gameState.cardDeck.pop());
+    }
+
+    return cards;
+  }
+
+  /**
+   * Shuffles a deck of cards.
+   * @param {Array} deck - The deck to shuffle.
+   * @returns {Array} The shuffled deck.
+   */
+  shuffleDeck(deck) {
+    for (let i = deck.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [deck[i], deck[j]] = [deck[j], deck[i]];
+    }
+    return deck;
   }
 
   /**
@@ -219,53 +279,37 @@ class SurvivalPathGame {
    */
   handleMindPlayCard(roomId, playerId, targetPlayerId, card) {
     const room = this.rooms[roomId];
-    const player = room.players[playerId];
     const targetPlayer = room.players[targetPlayerId];
-
-    if (!targetPlayer) {
-      throw new Error("Target player not found");
-    }
-
-    // Debug log to see the exact card effect we're receiving
-    console.log("Received card effect:", card.effect);
-    console.log("Card object:", JSON.stringify(card, null, 2));
 
     switch (card.effect) {
       case "Discard Opponent Card":
         if (targetPlayer.hand.length > 0) {
-          const discardIndex = Math.floor(Math.random() * targetPlayer.hand.length);
-          targetPlayer.hand.splice(discardIndex, 1);
+          const discardedCard = targetPlayer.hand.pop();
+          console.log(`${targetPlayer.username} discarded a card:`, discardedCard);
+        } else {
+          console.log(`${targetPlayer.username} has no cards to discard.`);
         }
         break;
 
       case "Skip Opponent Turn":
-        targetPlayer.skipNextTurn = true;
+        if (!room.gameState.skippedTurns) {
+          room.gameState.skippedTurns = new Set();
+        }
+        room.gameState.skippedTurns.add(targetPlayerId);
+        console.log(`${targetPlayer.username}'s next turn will be skipped.`);
         break;
 
       case "Steal 5 Points":
-        const pointsToSteal = Math.min(5, targetPlayer.score);
-        targetPlayer.score -= pointsToSteal;
-        player.score += pointsToSteal;
+        const stolenPoints = Math.min(targetPlayer.score, card.value);
+        targetPlayer.score -= stolenPoints;
+        room.players[playerId].score += stolenPoints;
+        console.log(`${playerId} stole ${stolenPoints} points from ${targetPlayer.username}.`);
         break;
 
-      case "Steal a Random Card from Opponent":
-        console.log("Stealing a random card from opponent gggggg");
-        
-        if (targetPlayer.hand.length > 0) {
-          const randomIndex = Math.floor(Math.random() * targetPlayer.hand.length);
-          const stolenCard = targetPlayer.hand.splice(randomIndex, 1)[0];
-          player.hand.push(stolenCard);
-        }
-        break;
+      
 
       default:
         console.log(`Unknown Mind Play card effect: ${card.effect}`);
-        console.log("Available effects:", [
-          "Discard Opponent Card",
-          "Skip Opponent Turn",
-          "Steal 5 Points",
-          "Steal a Random Card from Opponent"
-        ]);
     }
   }
 
