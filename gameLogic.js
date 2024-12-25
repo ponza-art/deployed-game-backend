@@ -168,12 +168,15 @@ class SurvivalPathGame {
         break;
       case "Free Move":
         player.position += card.value;
+        player.score += card.value;
+        console.log(`${player.username} moved ${card.value} spaces for free.`);
         break;
       case "Draw 1 for Everyone":
         this.drawForEveryone(roomId);
         break;
       case "Bonus Round":
-        this.giveBonusRound(player);
+        player.score += 10;
+        console.log(`${player.username} received a bonus round with 10 points.`);
         break;
       default:
         console.log(`Unknown event card effect: ${card.effect}`);
@@ -292,10 +295,7 @@ class SurvivalPathGame {
         break;
 
       case "Skip Opponent Turn":
-        if (!room.gameState.skippedTurns) {
-          room.gameState.skippedTurns = new Set();
-        }
-        room.gameState.skippedTurns.add(targetPlayerId);
+        targetPlayer.isBlocked = true;
         console.log(`${targetPlayer.username}'s next turn will be skipped.`);
         break;
 
@@ -306,9 +306,21 @@ class SurvivalPathGame {
         console.log(`${playerId} stole ${stolenPoints} points from ${targetPlayer.username}.`);
         break;
 
-      
+      case "Steal A Random Card From Opponent":
+        console.log("Loaded card effects:", this.cards.map(card => card.effect));
+        if (targetPlayer.hand.length > 0) {
+          const randomIndex = Math.floor(Math.random() * targetPlayer.hand.length);
+          const stolenCard = targetPlayer.hand.splice(randomIndex, 1)[0];
+          room.players[playerId].hand.push(stolenCard);
+          console.log(`${playerId} stole a random card from ${targetPlayer.username}.`);
+        } else {
+          console.log(`${targetPlayer.username} has no cards to steal.`);
+        }
+        break;
 
       default:
+        
+        console.log("Loaded card effects:", this.cards.map(card => console.log(card)));
         console.log(`Unknown Mind Play card effect: ${card.effect}`);
     }
   }
@@ -346,11 +358,11 @@ class SurvivalPathGame {
     const currentTurnIndex = room.gameState.turnOrder.indexOf(room.gameState.currentTurn);
     let nextTurnIndex = (currentTurnIndex + 1) % room.gameState.turnOrder.length;
 
-    while (room.players[room.gameState.turnOrder[nextTurnIndex]].isBlocked) {
-      const blockedPlayerId = room.gameState.turnOrder[nextTurnIndex];
-      room.players[blockedPlayerId].isBlocked = false; // Reset the block
-      nextTurnIndex = (nextTurnIndex + 1) % room.gameState.turnOrder.length;
-      console.log(`${blockedPlayerId} was skipped because they were blocked.`);
+    const nextPlayerId = room.gameState.turnOrder[nextTurnIndex];
+    if (room.players[nextPlayerId].isBlocked) {
+        room.players[nextPlayerId].isBlocked = false;
+        nextTurnIndex = (nextTurnIndex + 1) % room.gameState.turnOrder.length;
+        console.log(`${nextPlayerId}'s turn was skipped due to being blocked.`);
     }
 
     room.gameState.currentTurn = room.gameState.turnOrder[nextTurnIndex];
