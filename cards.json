@@ -8,5 +8,24 @@
   { "type": "Event", "effect": "Shuffle Board", "value": 0, "count": 2 },
   { "type": "Event", "effect": "Free Move", "value": 4, "count": 2 },
   { "type": "Event", "effect": "Draw 1 for Everyone", "value": 1, "count": 2 },
-  { "type": "Event", "effect": "Bonus Round", "value": 0, "count": 2 }
+  { "type": "Event", "effect": "Bonus Round", "value": 0, "count": 2 },
+  {
+    "type": "Mind Play",
+    "effect": "Discard Opponent Card",
+    "value": 0,
+    "count": 3
+  },
+  {
+    "type": "Mind Play",
+    "effect": "Skip Opponent Turn",
+    "value": 0,
+    "count": 3
+  },
+  { "type": "Mind Play", "effect": "Steal 5 Points", "value": 5, "count": 2 },
+  {
+    "type": "Mind Play",
+    "effect": "Steal a Random Card from Opponent",
+    "value": 0,
+    "count": 1
+  }
 ]

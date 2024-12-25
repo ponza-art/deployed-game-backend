@@ -28,7 +28,7 @@ class SurvivalPathGame {
    */
   setup() {
     const cardDeck = this.shuffleDeck([...this.cards]);
-    const board = Array.from({ length: 45 }, (_, i) => i + 1); // Initialize board with values 1 to 20
+    const board = Array.from({ length: 45 }, (_, i) => i + 1); // Initialize board with values 1 to 45
     return {
       players: {},
       board,
@@ -95,52 +95,63 @@ class SurvivalPathGame {
    * @param {string} roomId - The room ID.
    * @param {string} playerId - The player ID.
    * @param {number} cardIndex - The index of the card to play.
+   * @param {string} [targetPlayerId] - The targeted player's ID (if applicable).
    * @returns {Object} Result of the card play.
    */
-  playCard(roomId, playerId, cardIndex) {
+  playCard(roomId, playerId, cardIndex, targetPlayerId = null) {
     const room = this.rooms[roomId];
-    if (!room) {
-      throw new Error(`Room with ID ${roomId} does not exist.`);
-    }
-
     const player = room.players[playerId];
-    if (!player) {
-      throw new Error(`Player with ID ${playerId} not found in room ${roomId}.`);
-    }
 
-    if (room.gameState.currentTurn !== playerId) {
-      throw new Error(`It's not your turn.`);
+    if (!room || !player) {
+      throw new Error("Invalid room or player");
     }
 
     if (cardIndex < 0 || cardIndex >= player.hand.length) {
-      throw new Error(`Invalid card index.`);
+      throw new Error("Invalid card index");
+    }
+
+    if (player.skipNextTurn) {
+      player.skipNextTurn = false;
+      throw new Error("You must skip this turn");
     }
 
     const card = player.hand[cardIndex];
+    player.hand.splice(cardIndex, 1);
+
+    let actionResult = {
+      message: `${player.username} played ${card.effect}`,
+      playedCard: card
+    };
 
     if (card.type === "Move") {
       player.position += card.value;
-      player.score += card.value * 10;
+      player.score += card.value;
+      actionResult.message = `${player.username} moved ${card.value} steps`;
     } else if (card.type === "Event") {
       this.handleEventCard(roomId, playerId, card);
+      actionResult.message = `${player.username} played ${card.effect}`;
+    } else if (card.type === "Mind Play") {
+      if (!targetPlayerId) {
+        throw new Error("Target player is required for Mind Play cards");
+      }
+      this.handleMindPlayCard(roomId, playerId, targetPlayerId, card);
+      actionResult.message = `${player.username} used ${card.effect}`;
     }
 
-    player.hand.splice(cardIndex, 1);
+    // Draw a new card
     const newCards = this.drawCards(roomId, 1);
     player.hand.push(...newCards);
 
+    // Check for win condition
     if (player.position >= room.gameState.board.length) {
       room.gameState.winner = playerId;
       clearInterval(room.timerInterval);
-      return { message: `🎉 ${player.username} has won the game!` };
+      actionResult.message = `🎉 ${player.username} has won the game!`;
+    } else {
+      this.endTurn(roomId);
     }
 
-    this.endTurn(roomId);
-
-    return {
-      message: `${player.username} moved to position ${player.position}.`,
-      hand: player.hand,
-    };
+    return actionResult;
   }
 
   /**
@@ -155,116 +166,107 @@ class SurvivalPathGame {
 
     switch (card.effect) {
       case "Swap Places":
-        this.swapPlaces(roomId, playerId);
+        // Player chooses another player to swap with
+        const otherPlayers = Object.entries(room.players)
+          .filter(([id]) => id !== playerId);
+        if (otherPlayers.length > 0) {
+          const randomPlayer = otherPlayers[Math.floor(Math.random() * otherPlayers.length)][1];
+          const tempPosition = player.position;
+          player.position = randomPlayer.position;
+          randomPlayer.position = tempPosition;
+        }
         break;
+
       case "Shuffle Board":
-        this.shuffleBoard(roomId);
+        // Randomly reassign all players to new positions
+        const positions = Object.values(room.players).map(p => p.position);
+        positions.sort(() => Math.random() - 0.5);
+        Object.values(room.players).forEach((p, i) => {
+          p.position = positions[i];
+        });
         break;
+
       case "Free Move":
+        // Move forward 4 spaces without using a move card
         player.position += card.value;
+        player.score += card.value;
         break;
+
       case "Draw 1 for Everyone":
-        this.drawForEveryone(roomId);
+        // Each player draws one card
+        Object.keys(room.players).forEach(pid => {
+          const newCards = this.drawCards(roomId, 1);
+          room.players[pid].hand.push(...newCards);
+        });
         break;
+
       case "Bonus Round":
-        this.giveBonusRound(player);
+        // Player gets 10 bonus points
+        player.score += 10;
         break;
+
       default:
-        console.log(`Unknown event card effect: ${card.effect}`);
+        console.log(`Unknown Event card effect: ${card.effect}`);
     }
   }
 
   /**
-   * Swaps positions with a random other player.
+   * Handles a "Mind Play" card effect.
    * @param {string} roomId - The room ID.
    * @param {string} playerId - The player ID.
+   * @param {string} targetPlayerId - The targeted player ID.
+   * @param {Object} card - The Mind Play card.
    */
-  swapPlaces(roomId, playerId) {
+  handleMindPlayCard(roomId, playerId, targetPlayerId, card) {
     const room = this.rooms[roomId];
     const player = room.players[playerId];
+    const targetPlayer = room.players[targetPlayerId];
 
-    const otherPlayers = Object.values(room.players).filter(p => p !== player);
-    if (otherPlayers.length === 0) return;
-
-    const randomPlayer = otherPlayers[Math.floor(Math.random() * otherPlayers.length)];
-    const tempPosition = player.position;
-    player.position = randomPlayer.position;
-    randomPlayer.position = tempPosition;
-
-    console.log(`${player.username} swapped places with ${randomPlayer.username}.`);
-  }
-
-  /**
- * Shuffles the game board.
- * @param {string} roomId - The room ID.
- */
-shuffleBoard(roomId) {
-    const room = this.rooms[roomId];
-    if (!room || !room.gameState.board) {
-      throw new Error(`Board not found for room ${roomId}.`);
-    }
-  
-    // Shuffle the board directly
-    room.gameState.board = room.gameState.board.sort(() => Math.random() - 0.5);
-  
-    console.log(`Board shuffled for room ${roomId}:`, room.gameState.board);
-  }
-  
-
-  /**
-   * Draws cards for every player in the room.
-   * @param {string} roomId - The room ID.
-   */
-  drawForEveryone(roomId) {
-    const room = this.rooms[roomId];
-    Object.keys(room.players).forEach(playerId => {
-      const newCards = this.drawCards(roomId, 1);
-      room.players[playerId].hand.push(...newCards);
-    });
-    console.log("Each player drew 1 card.");
-  }
-
-  /**
-   * Gives a bonus round to a player.
-   * @param {Object} player - The player object.
-   */
-  giveBonusRound(player) {
-    player.score += 50;
-    console.log(`${player.username} received a bonus round with 50 points.`);
-  }
-
-  /**
-   * Draws a specified number of cards for a room.
-   * @param {string} roomId - The room ID.
-   * @param {number} count - The number of cards to draw.
-   * @returns {Array} The drawn cards.
-   */
-  drawCards(roomId, count) {
-    const room = this.rooms[roomId];
-    const cards = [];
-
-    for (let i = 0; i < count; i++) {
-      if (room.gameState.cardDeck.length === 0) {
-        room.gameState.cardDeck = this.shuffleDeck([...this.cards]);
-        console.log("Deck reset and shuffled:", room.gameState.cardDeck);
-      }
-      cards.push(room.gameState.cardDeck.pop());
+    if (!targetPlayer) {
+      throw new Error("Target player not found");
     }
 
-    return cards;
-  }
+    // Debug log to see the exact card effect we're receiving
+    console.log("Received card effect:", card.effect);
+    console.log("Card object:", JSON.stringify(card, null, 2));
 
-  /**
-   * Shuffles a deck of cards.
-   * @param {Array} deck - The deck to shuffle.
-   * @returns {Array} The shuffled deck.
-   */
-  shuffleDeck(deck) {
-    for (let i = deck.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [deck[i], deck[j]] = [deck[j], deck[i]];
+    switch (card.effect) {
+      case "Discard Opponent Card":
+        if (targetPlayer.hand.length > 0) {
+          const discardIndex = Math.floor(Math.random() * targetPlayer.hand.length);
+          targetPlayer.hand.splice(discardIndex, 1);
+        }
+        break;
+
+      case "Skip Opponent Turn":
+        targetPlayer.skipNextTurn = true;
+        break;
+
+      case "Steal 5 Points":
+        const pointsToSteal = Math.min(5, targetPlayer.score);
+        targetPlayer.score -= pointsToSteal;
+        player.score += pointsToSteal;
+        break;
+
+      case "Steal a Random Card from Opponent":
+        console.log("Stealing a random card from opponent gggggg");
+        
+        if (targetPlayer.hand.length > 0) {
+          const randomIndex = Math.floor(Math.random() * targetPlayer.hand.length);
+          const stolenCard = targetPlayer.hand.splice(randomIndex, 1)[0];
+          player.hand.push(stolenCard);
+        }
+        break;
+
+      default:
+        console.log(`Unknown Mind Play card effect: ${card.effect}`);
+        console.log("Available effects:", [
+          "Discard Opponent Card",
+          "Skip Opponent Turn",
+          "Steal 5 Points",
+          "Steal a Random Card from Opponent"
+        ]);
     }
-    return deck;
   }
 
   /**
@@ -298,7 +300,15 @@ shuffleBoard(roomId) {
   endTurn(roomId) {
     const room = this.rooms[roomId];
     const currentTurnIndex = room.gameState.turnOrder.indexOf(room.gameState.currentTurn);
-    const nextTurnIndex = (currentTurnIndex + 1) % room.gameState.turnOrder.length;
+    let nextTurnIndex = (currentTurnIndex + 1) % room.gameState.turnOrder.length;
+
+    while (room.players[room.gameState.turnOrder[nextTurnIndex]].isBlocked) {
+      const blockedPlayerId = room.gameState.turnOrder[nextTurnIndex];
+      room.players[blockedPlayerId].isBlocked = false; // Reset the block
+      nextTurnIndex = (nextTurnIndex + 1) % room.gameState.turnOrder.length;
+      console.log(`${blockedPlayerId} was skipped because they were blocked.`);
+    }
+
     room.gameState.currentTurn = room.gameState.turnOrder[nextTurnIndex];
     room.gameState.turn++;
   }

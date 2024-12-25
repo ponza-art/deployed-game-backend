@@ -27,47 +27,70 @@ function handleSocketConnection(io) {
       }
     });
 
-    socket.on("playCard", ({ roomId, cardIndex }) => {
-      try {
-        const result = game.playCard(roomId, socket.id, cardIndex);
-        const roomState = game.getGameState(roomId);
+    socket.on("playCard", ({ roomId, cardIndex, targetPlayerId }) => {
+        try {
+          const result = game.playCard(roomId, socket.id, cardIndex, targetPlayerId);
+          const roomState = game.getGameState(roomId);
+          const player = roomState.players[socket.id];
+          
+          let eventDetails = null;
+          const playedCard = result.playedCard;
+          const targetPlayer = targetPlayerId ? roomState.players[targetPlayerId] : null;
 
-        // Add additional context for event cards
-        let eventDetails = null;
-        const playedCard = roomState.players[socket.id].hand[cardIndex];
-        if (playedCard?.type === "Event") {
-          switch (playedCard.effect) {
-            case "Swap Places":
-              eventDetails = `Player ${socket.id} swapped places with another player.`;
+          switch (playedCard.type) {
+            case "Move":
+              eventDetails = `${player.username} moved ${playedCard.value} steps forward`;
               break;
-            case "Shuffle Board":
-              game.shuffleBoard(roomId); // Update the board state in the room
-              eventDetails = "The board positions were shuffled.";
+
+            case "Event":
+              switch (playedCard.effect) {
+                case "Swap Places":
+                  eventDetails = `${player.username} swapped positions with another player`;
+                  break;
+                case "Shuffle Board":
+                  eventDetails = "All players' positions were shuffled";
+                  break;
+                case "Free Move":
+                  eventDetails = `${player.username} moved ${playedCard.value} steps for free`;
+                  break;
+                case "Draw 1 for Everyone":
+                  eventDetails = "Every player drew a card";
+                  break;
+                case "Bonus Round":
+                  eventDetails = `${player.username} gained 10 bonus points`;
+                  break;
+              }
               break;
-            case "Free Move":
-              eventDetails = `Player ${socket.id} moved ${playedCard.value} steps for free.`;
-              break;
-            case "Draw 1 for Everyone":
-              eventDetails = "Each player drew 1 card.";
-              break;
-            case "Bonus Round":
-              eventDetails = `Player ${socket.id} earned a bonus round!`;
+
+            case "Mind Play":
+              switch (playedCard.effect) {
+                case "Discard Opponent Card":
+                  eventDetails = `${player.username} made ${targetPlayer.username} discard a card`;
+                  break;
+                case "Skip Opponent Turn":
+                  eventDetails = `${player.username} made ${targetPlayer.username} skip their next turn`;
+                  break;
+                case "Steal 5 Points":
+                  eventDetails = `${player.username} stole up to 5 points from ${targetPlayer.username}`;
+                  break;
+                case "Steal a Random Card from Opponent":
+                  eventDetails = `${player.username} stole a random card from ${targetPlayer.username}`;
+                  break;
+              }
               break;
           }
-        }
 
-        // Emit game state with last action and event details
-        io.to(roomId).emit("gameState", {
-          ...game.getGameState(roomId), // Ensure the latest state is sent
-          lastAction: result.message,
-          eventDetails,
-        });
-        console.log("Game state updated:", game.getGameState(roomId));
-        
-      } catch (error) {
-        socket.emit("actionError", { message: error.message });
-      }
-    });
+          io.to(roomId).emit("gameState", {
+            ...roomState,
+            lastAction: result.message,
+            eventDetails,
+          });
+
+        } catch (error) {
+          socket.emit("actionError", { message: error.message });
+        }
+      });
+          
 
     socket.on("disconnect", () => {
       console.log(`Player disconnected: ${socket.id}`);
