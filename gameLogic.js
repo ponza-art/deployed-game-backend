@@ -6,6 +6,10 @@ class SurvivalPathGame {
     this.name = "survival-path";
     this.rooms = {};
     this.cards = this.loadCards();
+    this.ROUNDS_PER_GAME = 3;
+    this.ROUND_TIME = 300; // 5 minutes in seconds
+    this.MIN_PLAYERS = 2;
+    this.WINNING_POINTS = 20;
   }
 
   /**
@@ -28,7 +32,7 @@ class SurvivalPathGame {
    */
   setup() {
     const cardDeck = this.shuffleDeck([...this.cards]);
-    const board = Array.from({ length: 45 }, (_, i) => i + 1); // Initialize board with values 1 to 45
+    const board = Array.from({ length: 45 }, (_, i) => i + 1);
     return {
       players: {},
       board,
@@ -38,6 +42,10 @@ class SurvivalPathGame {
       currentTurn: null,
       winner: null,
       timer: 30,
+      currentRound: 1,
+      roundTimer: this.ROUND_TIME,
+      roundWinners: [],
+      gameStarted: false,
     };
   }
 
@@ -53,6 +61,7 @@ class SurvivalPathGame {
       gameState: this.setup(),
       players: {},
       timerInterval: null,
+      roundInterval: null,
     };
     console.log(`Room ${roomId} created.`);
   }
@@ -78,10 +87,16 @@ class SurvivalPathGame {
       position: 0,
       score: 0,
       hand: this.drawCards(roomId, 3),
+      roundWins: 0,
     };
 
     room.players[playerId] = newPlayer;
     room.gameState.turnOrder.push(playerId);
+
+    if (Object.keys(room.players).length >= this.MIN_PLAYERS) {
+      room.gameState.gameStarted = true;
+      this.startRound(roomId);
+    }
 
     if (room.gameState.turnOrder.length === 1) {
       room.gameState.currentTurn = playerId;
@@ -135,10 +150,9 @@ class SurvivalPathGame {
     const newCards = this.drawCards(roomId, 1);
     player.hand.push(...newCards);
 
-    if (player.position >= room.gameState.board.length) {
-      room.gameState.winner = playerId;
-      clearInterval(room.timerInterval);
-      return { message: `🎉 ${player.username} has won the game!` };
+    if (player.position >= 45) {
+      this.endRound(roomId);
+      return { message: `${player.username} has won round ${room.gameState.currentRound}!` };
     }
 
     this.endTurn(roomId);
@@ -344,7 +358,9 @@ class SurvivalPathGame {
       if (room.gameState.timer <= 0) {
         clearInterval(room.timerInterval);
         this.endTurn(roomId);
+        io.to(roomId).emit("timerExpired");
         io.to(roomId).emit("gameState", this.getGameState(roomId));
+        this.startTimer(roomId, io);
       }
     }, 1000);
   }
@@ -383,6 +399,70 @@ class SurvivalPathGame {
       gameState: room.gameState,
       players: room.players,
     };
+  }
+
+  startRound(roomId) {
+    const room = this.rooms[roomId];
+    if (!room) return;
+
+    // Reset positions for new round
+    Object.values(room.players).forEach(player => {
+      player.position = 0;
+    });
+
+    // Start round timer
+    clearInterval(room.roundInterval);
+    room.gameState.roundTimer = this.ROUND_TIME;
+
+    room.roundInterval = setInterval(() => {
+      room.gameState.roundTimer--;
+      
+      if (room.gameState.roundTimer <= 0) {
+        this.endRound(roomId);
+      }
+    }, 1000);
+  }
+
+  endRound(roomId) {
+    const room = this.rooms[roomId];
+    if (!room) return;
+
+    clearInterval(room.roundInterval);
+
+    // Find round winner
+    const winner = Object.entries(room.players)
+      .reduce((prev, [id, player]) => {
+        return (!prev || player.position > room.players[prev].position) ? id : prev;
+      }, null);
+
+    if (winner) {
+      room.players[winner].roundWins++;
+      room.players[winner].score += this.WINNING_POINTS;
+      room.gameState.roundWinners.push(winner);
+    }
+
+    // Check if game is complete
+    if (room.gameState.currentRound >= this.ROUNDS_PER_GAME) {
+      this.endGame(roomId);
+    } else {
+      room.gameState.currentRound++;
+      this.startRound(roomId);
+    }
+  }
+
+  endGame(roomId) {
+    const room = this.rooms[roomId];
+    if (!room) return;
+
+    // Find overall winner
+    const gameWinner = Object.entries(room.players)
+      .reduce((prev, [id, player]) => {
+        return (!prev || player.score > room.players[prev].score) ? id : prev;
+      }, null);
+
+    room.gameState.winner = gameWinner;
+    clearInterval(room.roundInterval);
+    clearInterval(room.timerInterval);
   }
 }
 

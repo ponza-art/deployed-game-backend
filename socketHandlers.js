@@ -29,7 +29,7 @@ function handleSocketConnection(io) {
 
     socket.on("playCard", ({ roomId, cardIndex, targetPlayerId }) => {
         try {
-          // Handle playing a card, now including targeted player
+          // Handle playing a card
           const result = game.playCard(roomId, socket.id, cardIndex, targetPlayerId);
           const roomState = game.getGameState(roomId);
       
@@ -43,7 +43,6 @@ function handleSocketConnection(io) {
                 eventDetails = `Player ${socket.id} swapped places with another player.`;
                 break;
               case "Shuffle Board":
-                game.shuffleBoard(roomId);
                 eventDetails = "The board positions were shuffled.";
                 break;
               case "Free Move":
@@ -57,29 +56,12 @@ function handleSocketConnection(io) {
                 break;
             }
           } else if (playedCard?.type === "Mind Play") {
-            // Here, we implement the Mind Play card logic
-            const currentPlayer = roomState.players[socket.id];
-            const targetPlayer = roomState.players[targetPlayerId];
-      
-            if (currentPlayer && targetPlayer) {
-              // Example action: swap one card between players
-              const currentPlayerCard = currentPlayer.hand[cardIndex];
-              const targetPlayerCard = targetPlayer.hand[0]; // Let's assume the target's first card is swapped
-      
-              // Swap cards between players
-              currentPlayer.hand[cardIndex] = targetPlayerCard;
-              targetPlayer.hand[0] = currentPlayerCard; // Swapping with target's first card
-      
-              // Set the event details message
-              eventDetails = `Player ${socket.id} played a Mind Play card targeting ${targetPlayerId}. Cards swapped!`;
-            } else {
-              eventDetails = "Invalid target player!";
-            }
+            eventDetails = `Player ${socket.id} played a Mind Play card targeting ${targetPlayerId}!`;
           }
       
           // Emit game state with last action and event details
           io.to(roomId).emit("gameState", {
-            ...game.getGameState(roomId), // Ensure the latest state is sent
+            ...game.getGameState(roomId),
             lastAction: result.message,
             eventDetails,
           });
