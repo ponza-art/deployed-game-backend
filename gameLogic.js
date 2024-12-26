@@ -175,7 +175,10 @@ class SurvivalPathGame {
 
     switch (card.effect) {
       case "Swap Places":
-        this.swapPlaces(roomId, playerId);
+        if (!targetPlayerId) {
+          throw new Error("Target player is required for Swap Places card");
+        }
+        this.swapPlaces(roomId, playerId, targetPlayerId);
         break;
       case "Shuffle Board":
         this.shuffleBoard(roomId);
@@ -202,19 +205,20 @@ class SurvivalPathGame {
    * @param {string} roomId - The room ID.
    * @param {string} playerId - The player ID.
    */
-  swapPlaces(roomId, playerId) {
+  swapPlaces(roomId, playerId, targetPlayerId) {
     const room = this.rooms[roomId];
     const player = room.players[playerId];
+    const targetPlayer = room.players[targetPlayerId];
 
-    const otherPlayers = Object.values(room.players).filter(p => p !== player);
-    if (otherPlayers.length === 0) return;
+    if (!targetPlayer) {
+      throw new Error("Target player not found");
+    }
 
-    const randomPlayer = otherPlayers[Math.floor(Math.random() * otherPlayers.length)];
     const tempPosition = player.position;
-    player.position = randomPlayer.position;
-    randomPlayer.position = tempPosition;
+    player.position = targetPlayer.position;
+    targetPlayer.position = tempPosition;
 
-    console.log(`${player.username} swapped places with ${randomPlayer.username}.`);
+    console.log(`${player.username} swapped places with ${targetPlayer.username}.`);
   }
 
   /**
