@@ -175,10 +175,7 @@ class SurvivalPathGame {
 
     switch (card.effect) {
       case "Swap Places":
-        if (!targetPlayerId) {
-          throw new Error("Target player is required for Swap Places card");
-        }
-        this.swapPlaces(roomId, playerId, targetPlayerId);
+        this.swapPlaces(roomId, playerId);
         break;
       case "Shuffle Board":
         this.shuffleBoard(roomId);
@@ -205,20 +202,19 @@ class SurvivalPathGame {
    * @param {string} roomId - The room ID.
    * @param {string} playerId - The player ID.
    */
-  swapPlaces(roomId, playerId, targetPlayerId) {
+  swapPlaces(roomId, playerId) {
     const room = this.rooms[roomId];
     const player = room.players[playerId];
-    const targetPlayer = room.players[targetPlayerId];
 
-    if (!targetPlayer) {
-      throw new Error("Target player not found");
-    }
+    const otherPlayers = Object.values(room.players).filter(p => p !== player);
+    if (otherPlayers.length === 0) return;
 
+    const randomPlayer = otherPlayers[Math.floor(Math.random() * otherPlayers.length)];
     const tempPosition = player.position;
-    player.position = targetPlayer.position;
-    targetPlayer.position = tempPosition;
+    player.position = randomPlayer.position;
+    randomPlayer.position = tempPosition;
 
-    console.log(`${player.username} swapped places with ${targetPlayer.username}.`);
+    console.log(`${player.username} swapped places with ${randomPlayer.username}.`);
   }
 
   /**
@@ -375,17 +371,31 @@ class SurvivalPathGame {
    */
   endTurn(roomId) {
     const room = this.rooms[roomId];
+    if (!room) return;
+
+    // Clean up turnOrder to only include existing players
+    room.gameState.turnOrder = room.gameState.turnOrder.filter(playerId => 
+      room.players[playerId] !== undefined
+    );
+
+    // If no players left, return
+    if (room.gameState.turnOrder.length === 0) return;
+
     const currentTurnIndex = room.gameState.turnOrder.indexOf(room.gameState.currentTurn);
     let nextTurnIndex = (currentTurnIndex + 1) % room.gameState.turnOrder.length;
 
-    const nextPlayerId = room.gameState.turnOrder[nextTurnIndex];
-    if (room.players[nextPlayerId].isBlocked) {
-        room.players[nextPlayerId].isBlocked = false;
-        nextTurnIndex = (nextTurnIndex + 1) % room.gameState.turnOrder.length;
-        console.log(`${nextPlayerId}'s turn was skipped due to being blocked.`);
+    // Find next valid player
+    let nextPlayerId = room.gameState.turnOrder[nextTurnIndex];
+    
+    // Check if player exists and is blocked
+    while (room.players[nextPlayerId]?.isBlocked) {
+      room.players[nextPlayerId].isBlocked = false;
+      console.log(`${nextPlayerId}'s turn was skipped due to being blocked.`);
+      nextTurnIndex = (nextTurnIndex + 1) % room.gameState.turnOrder.length;
+      nextPlayerId = room.gameState.turnOrder[nextTurnIndex];
     }
 
-    room.gameState.currentTurn = room.gameState.turnOrder[nextTurnIndex];
+    room.gameState.currentTurn = nextPlayerId;
     room.gameState.turn++;
   }
 

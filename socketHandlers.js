@@ -28,45 +28,48 @@ function handleSocketConnection(io) {
     });
 
     socket.on("playCard", ({ roomId, cardIndex, targetPlayerId }) => {
-      try {
-        const result = game.playCard(roomId, socket.id, cardIndex, targetPlayerId);
-        const roomState = game.getGameState(roomId);
+        try {
+          // Handle playing a card
+          const result = game.playCard(roomId, socket.id, cardIndex, targetPlayerId);
+          const roomState = game.getGameState(roomId);
       
-        let eventDetails = null;
-        const playedCard = roomState.players[socket.id]?.hand[cardIndex];
+          // Add additional context for event and mind play cards
+          let eventDetails = null;
+          const playedCard = roomState.players[socket.id]?.hand[cardIndex];
       
-        if (playedCard?.type === "Event") {
-          switch (playedCard.effect) {
-            case "Swap Places":
-              eventDetails = `Player ${socket.id} swapped places with another player.`;
-              break;
-            case "Shuffle Board":
-              eventDetails = "The board positions were shuffled.";
-              break;
-            case "Free Move":
-              eventDetails = `Player ${socket.id} moved ${playedCard.value} steps for free.`;
-              break;
-            case "Draw 1 for Everyone":
-              eventDetails = "Each player drew 1 card.";
-              break;
-            case "Bonus Round":
-              eventDetails = `Player ${socket.id} earned a bonus round!`;
-              break;
+          if (playedCard?.type === "Event") {
+            switch (playedCard.effect) {
+              case "Swap Places":
+                eventDetails = `Player ${socket.id} swapped places with another player.`;
+                break;
+              case "Shuffle Board":
+                eventDetails = "The board positions were shuffled.";
+                break;
+              case "Free Move":
+                eventDetails = `Player ${socket.id} moved ${playedCard.value} steps for free.`;
+                break;
+              case "Draw 1 for Everyone":
+                eventDetails = "Each player drew 1 card.";
+                break;
+              case "Bonus Round":
+                eventDetails = `Player ${socket.id} earned a bonus round!`;
+                break;
+            }
+          } else if (playedCard?.type === "Mind Play") {
+            eventDetails = `Player ${socket.id} played a Mind Play card targeting ${targetPlayerId}!`;
           }
-        } else if (playedCard?.type === "Mind Play") {
-          eventDetails = `Player ${socket.id} played a Mind Play card targeting ${targetPlayerId}!`;
+      
+          // Emit game state with last action and event details
+          io.to(roomId).emit("gameState", {
+            ...game.getGameState(roomId),
+            lastAction: result.message,
+            eventDetails,
+          });
+      
+        } catch (error) {
+          socket.emit("actionError", { message: error.message });
         }
-      
-        io.to(roomId).emit("gameState", {
-          ...game.getGameState(roomId),
-          lastAction: result.message,
-          eventDetails,
-        });
-      
-      } catch (error) {
-        socket.emit("actionError", { message: error.message });
-      }
-    });
+      });
           
 
     socket.on("disconnect", () => {
