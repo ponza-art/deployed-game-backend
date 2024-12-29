@@ -10,6 +10,8 @@ class SurvivalPathGame {
     this.ROUND_TIME = 300; // 5 minutes in seconds
     this.MIN_PLAYERS = 2;
     this.WINNING_POINTS = 20;
+    this.BOARD_SIZE = 45;
+    this.BOARD_COLUMNS = 9;
   }
 
   /**
@@ -31,12 +33,11 @@ class SurvivalPathGame {
    * @returns {Object} The initial game state.
    */
   setup() {
-    const cardDeck = this.shuffleDeck([...this.cards]);
-    const board = Array.from({ length: 45 }, (_, i) => i + 1);
+    const board = Array.from({ length: this.BOARD_SIZE }, (_, i) => i + 1);
     return {
       players: {},
       board,
-      cardDeck,
+      cardDeck: this.shuffleDeck([...this.cards]),
       turn: 0,
       turnOrder: [],
       currentTurn: null,
@@ -84,7 +85,8 @@ class SurvivalPathGame {
 
     const newPlayer = {
       username: username || `Player ${Object.keys(room.players).length + 1}`,
-      position: 0,
+      position: room.gameState.board[0],
+      moves: 0,
       score: 0,
       hand: this.drawCards(roomId, 3),
       roundWins: 0,
@@ -116,24 +118,15 @@ class SurvivalPathGame {
    */
   playCard(roomId, playerId, cardIndex, targetPlayerId = null, direction = 'forward') {
     const room = this.rooms[roomId];
-    if (!room) {
-      throw new Error(`Room with ID ${roomId} does not exist.`);
-    }
+    if (!room) throw new Error(`Room with ID ${roomId} does not exist.`);
 
     const player = room.players[playerId];
-    if (!player) {
-      throw new Error(`Player with ID ${playerId} not found in room ${roomId}.`);
-    }
+    if (!player) throw new Error(`Player with ID ${playerId} not found in room ${roomId}.`);
 
-    if (room.gameState.currentTurn !== playerId) {
-      throw new Error(`It's not your turn.`);
-    }
-
-    if (cardIndex < 0 || cardIndex >= player.hand.length) {
-      throw new Error(`Invalid card index.`);
-    }
+    if (room.gameState.currentTurn !== playerId) throw new Error(`It's not your turn.`);
 
     const card = player.hand[cardIndex];
+    if (!card) throw new Error(`Invalid card index.`);
 
     // Validate target player for Mind Play and Swap Places
     if ((card.type === "Mind Play" || (card.type === "Event" && card.effect === "Swap Places")) 
@@ -141,12 +134,33 @@ class SurvivalPathGame {
       throw new Error("Must select a valid target player");
     }
 
+    // Handle movement
     if (card.type === "Move") {
       const movement = direction === 'forward' ? card.value : -card.value;
-      const newPosition = player.position + movement;
-      player.position = Math.max(0, Math.min(44, newPosition));
+      const currentPosition = player.position;
+      const currentIndex = room.gameState.board.indexOf(currentPosition);
+      
+      // Calculate new index
+      let newIndex;
+      if (direction === 'forward') {
+        newIndex = Math.min(this.BOARD_SIZE - 1, currentIndex + movement);
+      } else {
+        newIndex = Math.max(0, currentIndex - card.value);
+      }
+
+      // Set position to the square number at the new index
+      player.position = room.gameState.board[newIndex];
+      player.moves += Math.abs(movement);
       player.score += Math.abs(movement);
-    } else if (card.type === "Event") {
+
+      // Check for win
+      if (player.position === this.BOARD_SIZE) {
+        this.endRound(roomId);
+        return { message: `${player.username} has won round ${room.gameState.currentRound}!` };
+      }
+    } 
+    // Handle other card types
+    else if (card.type === "Event") {
       this.handleEventCard(roomId, playerId, card, targetPlayerId);
     } else if (card.type === "Mind Play") {
       this.handleMindPlayCard(roomId, playerId, targetPlayerId, card);
@@ -156,11 +170,6 @@ class SurvivalPathGame {
     player.hand.splice(cardIndex, 1);
     const newCards = this.drawCards(roomId, 1);
     player.hand.push(...newCards);
-
-    if (player.position >= 45) {
-      this.endRound(roomId);
-      return { message: `${player.username} has won round ${room.gameState.currentRound}!` };
-    }
 
     this.endTurn(roomId);
 
@@ -185,7 +194,10 @@ class SurvivalPathGame {
         if (!targetPlayerId || !room.players[targetPlayerId]) {
           throw new Error("Must select a valid target player for Swap Places");
         }
-        this.swapPlaces(roomId, playerId, targetPlayerId);
+        const targetPlayer = room.players[targetPlayerId];
+        const tempPosition = player.position;
+        player.position = targetPlayer.position;
+        targetPlayer.position = tempPosition;
         break;
       case "Shuffle Board":
         this.shuffleBoard(roomId);
@@ -236,8 +248,28 @@ class SurvivalPathGame {
       throw new Error(`Board not found for room ${roomId}.`);
     }
 
-    room.gameState.board.sort(() => Math.random() - 0.5);
-    console.log(`Board shuffled for room ${roomId}:`, room.gameState.board);
+    // Store current player positions and their corresponding board values
+    const playerPositions = {};
+    Object.entries(room.players).forEach(([playerId, player]) => {
+      playerPositions[playerId] = player.position;
+    });
+
+    // Shuffle the board
+    room.gameState.board = this.shuffleDeck([...room.gameState.board]);
+
+    // Update player positions based on new board positions
+    Object.entries(playerPositions).forEach(([playerId, squareNumber]) => {
+      // Find the new index of the player's square number
+      const newIndex = room.gameState.board.indexOf(squareNumber);
+      if (newIndex === -1) {
+        console.error(`Square number ${squareNumber} not found after shuffle`);
+        room.players[playerId].position = room.gameState.board[0];
+      } else {
+        room.players[playerId].position = squareNumber;
+      }
+    });
+
+    console.log("Board shuffled, player positions updated");
   }
 
   /**
@@ -453,7 +485,8 @@ class SurvivalPathGame {
 
     // Reset positions for new round
     Object.values(room.players).forEach(player => {
-      player.position = 0;
+      player.position = room.gameState.board[0];
+      player.moves = 0;
     });
 
     // Start round timer
