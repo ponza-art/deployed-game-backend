@@ -6,7 +6,7 @@
   { "type": "Move", "effect": "Move 5 Steps", "value": 5, "count": 3 },
   { "type": "Event", "effect": "Swap Places", "value": 0, "count": 2 },
   { "type": "Event", "effect": "Shuffle Board", "value": 0, "count": 2 },
-  { "type": "Event", "effect": "Free Move", "value": 4, "count": 2 },
+  { "type": "Event", "effect": "Free Move", "value": 6, "count": 2 },
   { "type": "Event", "effect": "Draw 1 for Everyone", "value": 1, "count": 2 },
   { "type": "Event", "effect": "Bonus Round", "value": 0, "count": 2 },
   { "type": "Mind Play", "effect": "Discard Opponent Card", "value": 0, "count": 3},
