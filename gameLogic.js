@@ -111,9 +111,10 @@ class SurvivalPathGame {
    * @param {string} playerId - The player ID.
    * @param {number} cardIndex - The index of the card to play.
    * @param {string} [targetPlayerId] - The targeted player's ID (if applicable).
+   * @param {string} [direction] - The direction of movement (forward or backward).
    * @returns {Object} Result of the card play.
    */
-  playCard(roomId, playerId, cardIndex, targetPlayerId = null) {
+  playCard(roomId, playerId, cardIndex, targetPlayerId = null, direction = 'forward') {
     const room = this.rooms[roomId];
     if (!room) {
       throw new Error(`Room with ID ${roomId} does not exist.`);
@@ -134,18 +135,24 @@ class SurvivalPathGame {
 
     const card = player.hand[cardIndex];
 
+    // Validate target player for Mind Play and Swap Places
+    if ((card.type === "Mind Play" || (card.type === "Event" && card.effect === "Swap Places")) 
+        && (!targetPlayerId || !room.players[targetPlayerId])) {
+      throw new Error("Must select a valid target player");
+    }
+
     if (card.type === "Move") {
-      player.position += card.value;
-      player.score += card.value;
+      const movement = direction === 'forward' ? card.value : -card.value;
+      const newPosition = player.position + movement;
+      player.position = Math.max(0, Math.min(44, newPosition));
+      player.score += Math.abs(movement);
     } else if (card.type === "Event") {
-      this.handleEventCard(roomId, playerId, card);
+      this.handleEventCard(roomId, playerId, card, targetPlayerId);
     } else if (card.type === "Mind Play") {
-      if (!targetPlayerId || !room.players[targetPlayerId]) {
-        throw new Error(`Target player ID ${targetPlayerId} is invalid.`);
-      }
       this.handleMindPlayCard(roomId, playerId, targetPlayerId, card);
     }
 
+    // Remove played card and draw new one
     player.hand.splice(cardIndex, 1);
     const newCards = this.drawCards(roomId, 1);
     player.hand.push(...newCards);
@@ -169,13 +176,16 @@ class SurvivalPathGame {
    * @param {string} playerId - The player ID.
    * @param {Object} card - The event card.
    */
-  handleEventCard(roomId, playerId, card) {
+  handleEventCard(roomId, playerId, card, targetPlayerId) {
     const room = this.rooms[roomId];
     const player = room.players[playerId];
 
     switch (card.effect) {
       case "Swap Places":
-        this.swapPlaces(roomId, playerId);
+        if (!targetPlayerId || !room.players[targetPlayerId]) {
+          throw new Error("Must select a valid target player for Swap Places");
+        }
+        this.swapPlaces(roomId, playerId, targetPlayerId);
         break;
       case "Shuffle Board":
         this.shuffleBoard(roomId);
@@ -183,14 +193,12 @@ class SurvivalPathGame {
       case "Free Move":
         player.position += card.value;
         player.score += card.value;
-        console.log(`${player.username} moved ${card.value} spaces for free.`);
         break;
       case "Draw 1 for Everyone":
         this.drawForEveryone(roomId);
         break;
       case "Bonus Round":
         player.score += 10;
-        console.log(`${player.username} received a bonus round with 10 points.`);
         break;
       default:
         console.log(`Unknown event card effect: ${card.effect}`);
@@ -202,19 +210,20 @@ class SurvivalPathGame {
    * @param {string} roomId - The room ID.
    * @param {string} playerId - The player ID.
    */
-  swapPlaces(roomId, playerId) {
+  swapPlaces(roomId, playerId, targetPlayerId) {
     const room = this.rooms[roomId];
     const player = room.players[playerId];
+    const targetPlayer = room.players[targetPlayerId];
 
-    const otherPlayers = Object.values(room.players).filter(p => p !== player);
-    if (otherPlayers.length === 0) return;
+    if (!targetPlayer) {
+      throw new Error("Target player not found");
+    }
 
-    const randomPlayer = otherPlayers[Math.floor(Math.random() * otherPlayers.length)];
     const tempPosition = player.position;
-    player.position = randomPlayer.position;
-    randomPlayer.position = tempPosition;
+    player.position = targetPlayer.position;
+    targetPlayer.position = tempPosition;
 
-    console.log(`${player.username} swapped places with ${randomPlayer.username}.`);
+    console.log(`${player.username} swapped places with ${targetPlayer.username}.`);
   }
 
   /**
