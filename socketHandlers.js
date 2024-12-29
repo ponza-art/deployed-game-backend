@@ -59,6 +59,9 @@ function handleSocketConnection(io) {
             eventDetails = `Player ${socket.id} played a Mind Play card targeting ${targetPlayerId}!`;
           }
       
+          // Reset and restart timer for next turn
+          game.resetAndStartTimer(roomId, io);
+      
           // Emit game state with last action and event details
           io.to(roomId).emit("gameState", {
             ...game.getGameState(roomId),

@@ -340,29 +340,46 @@ class SurvivalPathGame {
   }
 
   /**
-   * Starts the turn timer for a room.
+   * Resets and starts the turn timer for a room.
    * @param {string} roomId - The room ID.
    * @param {Object} io - The socket.io instance.
    */
-  startTimer(roomId, io) {
+  resetAndStartTimer(roomId, io) {
     const room = this.rooms[roomId];
     if (!room) return;
 
-    clearInterval(room.timerInterval);
+    // Clear any existing timer
+    if (room.timerInterval) {
+      clearInterval(room.timerInterval);
+      room.timerInterval = null;
+    }
+
+    // Reset timer value
     room.gameState.timer = 30;
 
+    // Start new timer
     room.timerInterval = setInterval(() => {
       room.gameState.timer--;
       io.to(roomId).emit("timerUpdate", { timer: room.gameState.timer });
 
       if (room.gameState.timer <= 0) {
         clearInterval(room.timerInterval);
+        room.timerInterval = null;
         this.endTurn(roomId);
         io.to(roomId).emit("timerExpired");
         io.to(roomId).emit("gameState", this.getGameState(roomId));
-        this.startTimer(roomId, io);
+        this.resetAndStartTimer(roomId, io); // Start timer for next turn
       }
     }, 1000);
+  }
+
+  /**
+   * Starts the turn timer for a room.
+   * @param {string} roomId - The room ID.
+   * @param {Object} io - The socket.io instance.
+   */
+  startTimer(roomId, io) {
+    this.resetAndStartTimer(roomId, io);
   }
 
   /**
@@ -372,6 +389,12 @@ class SurvivalPathGame {
   endTurn(roomId) {
     const room = this.rooms[roomId];
     if (!room) return;
+
+    // Clear existing timer if any
+    if (room.timerInterval) {
+      clearInterval(room.timerInterval);
+      room.timerInterval = null;
+    }
 
     // Clean up turnOrder to only include existing players
     room.gameState.turnOrder = room.gameState.turnOrder.filter(playerId => 
