@@ -518,6 +518,15 @@ class SurvivalPathGame {
       room.players[winner].roundWins++;
       room.players[winner].score += this.WINNING_POINTS;
       room.gameState.roundWinners.push(winner);
+      
+      // Emit detailed round end message
+      io.to(roomId).emit("roundComplete", {
+        winner: room.players[winner].username,
+        round: room.gameState.currentRound,
+        score: room.players[winner].score,
+        position: room.players[winner].position,
+        totalRounds: this.ROUNDS_PER_GAME
+      });
     }
 
     // Check if game is complete
@@ -529,7 +538,7 @@ class SurvivalPathGame {
     }
   }
 
-  endGame(roomId) {
+  endGame(roomId, io) {
     const room = this.rooms[roomId];
     if (!room) return;
 
@@ -539,9 +548,36 @@ class SurvivalPathGame {
         return (!prev || player.score > room.players[prev].score) ? id : prev;
       }, null);
 
-    room.gameState.winner = gameWinner;
-    clearInterval(room.roundInterval);
-    clearInterval(room.timerInterval);
+    if (gameWinner && room.players[gameWinner]) {
+      room.gameState.winner = gameWinner;
+      clearInterval(room.roundInterval);
+      clearInterval(room.timerInterval);
+
+      // Emit detailed game end message
+      io.to(roomId).emit("gameComplete", {
+        winner: room.players[gameWinner].username,
+        score: room.players[gameWinner].score,
+        roundWins: room.players[gameWinner].roundWins,
+        allPlayers: Object.entries(room.players).map(([id, player]) => ({
+          username: player.username,
+          score: player.score,
+          roundWins: player.roundWins
+        }))
+      });
+    } else {
+      // Handle case where no winner is found
+      io.to(roomId).emit("gameComplete", {
+        message: "Game complete! No winner could be determined."
+      });
+    }
+
+    // Remove room after 3 seconds
+    setTimeout(() => {
+      delete this.rooms[roomId];
+      io.to(roomId).emit("roomClosed", {
+        message: "Game completed. Room will be closed."
+      });
+    }, 3000);
   }
 }
 
