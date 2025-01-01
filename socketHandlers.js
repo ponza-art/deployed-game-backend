@@ -6,22 +6,65 @@ function handleSocketConnection(io) {
   io.on("connection", (socket) => {
     console.log(`Player connected: ${socket.id}`);
 
-    socket.on("createRoom", (roomId) => {
+    socket.on("createRoom", ({ roomId, isPublic, password }) => {
       try {
-        game.createRoom(roomId);
+        if (!roomId || typeof roomId !== 'string') {
+          throw new Error('Invalid room ID');
+        }
+        
+        game.createRoom(roomId, isPublic, password);
         socket.join(roomId);
-        game.startTimer(roomId, io);
-        io.to(roomId).emit("gameState", game.getGameState(roomId)); // Includes the board
+        io.emit("publicRoomsUpdate", game.getPublicRooms());
+        
       } catch (error) {
         socket.emit("actionError", { message: error.message });
       }
     });
 
-    socket.on("joinRoom", ({ roomId, username }) => {
+    socket.on("joinRoom", ({ roomId, username, password }) => {
       try {
-        game.addPlayerToRoom(roomId, socket.id, username);
+        game.addPlayerToRoom(roomId, socket.id, username, password);
         socket.join(roomId);
         io.to(roomId).emit("gameState", game.getGameState(roomId));
+        io.emit("publicRoomsUpdate", game.getPublicRooms());
+      } catch (error) {
+        socket.emit("actionError", { message: error.message });
+      }
+    });
+
+    socket.on("startGame", (roomId) => {
+      try {
+        const room = game.rooms[roomId];
+        if (!room || room.hostId !== socket.id) {
+          throw new Error("Only the host can start the game");
+        }
+        
+        game.startGame(roomId);
+        game.startTimer(roomId, io);
+        io.to(roomId).emit("gameState", game.getGameState(roomId));
+        io.emit("publicRoomsUpdate", game.getPublicRooms());
+      } catch (error) {
+        socket.emit("actionError", { message: error.message });
+      }
+    });
+
+    socket.on("getPublicRooms", () => {
+      socket.emit("publicRoomsUpdate", game.getPublicRooms());
+    });
+
+    socket.on("quickJoin", () => {
+      try {
+        const publicRooms = game.getPublicRooms();
+        const availableRoom = publicRooms.find(room => 
+          !game.rooms[room.roomId].hasStarted && 
+          room.playerCount < game.MAX_PLAYERS
+        );
+
+        if (!availableRoom) {
+          throw new Error("No available rooms found");
+        }
+
+        socket.emit("quickJoinRoom", availableRoom.roomId);
       } catch (error) {
         socket.emit("actionError", { message: error.message });
       }
@@ -29,8 +72,41 @@ function handleSocketConnection(io) {
 
     socket.on("playCard", ({ roomId, cardIndex, targetPlayerId, direction }) => {
       try {
+        // Validate inputs
+        if (!roomId || typeof roomId !== 'string') {
+          throw new Error('Invalid room ID');
+        }
+        if (typeof cardIndex !== 'number' || cardIndex < 0) {
+          throw new Error('Invalid card index');
+        }
+        if (direction && !['forward', 'backward'].includes(direction)) {
+          throw new Error('Invalid direction');
+        }
+
+        // Check if game is in valid state
+        const room = game.rooms[roomId];
+        if (!room) {
+          throw new Error('Room does not exist');
+        }
+        if (!room.gameState.gameStarted) {
+          throw new Error('Game has not started');
+        }
+        if (room.gameState.winner) {
+          throw new Error('Game has ended');
+        }
+
         const result = game.playCard(roomId, socket.id, cardIndex, targetPlayerId, direction);
         const roomState = game.getGameState(roomId);
+
+        // Check if the round should end due to player position
+        const currentPlayer = roomState.players[socket.id];
+        if (currentPlayer && currentPlayer.position >= 45) {
+          game.endRound(roomId);
+          io.to(roomId).emit("roundEnd", {
+            winner: socket.id,
+            winnerName: currentPlayer.username
+          });
+        }
 
         // Add additional context for event and mind play cards
         let eventDetails = null;
@@ -61,12 +137,13 @@ function handleSocketConnection(io) {
           eventDetails = `Player ${socket.id} moved ${playedCard.value} steps ${direction}.`;
         }
 
-        // Reset and restart timer for next turn
-        game.resetAndStartTimer(roomId, io);
+        // Reset and restart timer only if game is still active
+        if (!roomState.gameState.winner) {
+          game.resetAndStartTimer(roomId, io);
+        }
 
-        // Emit game state with last action and event details
         io.to(roomId).emit("gameState", {
-          ...game.getGameState(roomId),
+          ...roomState,
           lastAction: result.message,
           eventDetails,
         });
@@ -75,15 +152,46 @@ function handleSocketConnection(io) {
         socket.emit("actionError", { message: error.message });
       }
     });
-          
 
     socket.on("disconnect", () => {
-      console.log(`Player disconnected: ${socket.id}`);
-      for (const roomId in game.rooms) {
-        if (game.rooms[roomId]?.players[socket.id]) {
-          delete game.rooms[roomId].players[socket.id];
-          io.to(roomId).emit("gameState", game.getGameState(roomId));
+      try {
+        console.log(`Player disconnected: ${socket.id}`);
+        
+        // Find all rooms the player was in
+        for (const roomId in game.rooms) {
+          const room = game.rooms[roomId];
+          if (room?.players[socket.id]) {
+            // Remove player from room
+            delete room.players[socket.id];
+            
+            // Remove player from turn order
+            const turnOrderIndex = room.gameState.turnOrder.indexOf(socket.id);
+            if (turnOrderIndex > -1) {
+              room.gameState.turnOrder.splice(turnOrderIndex, 1);
+            }
+
+            // If it was this player's turn, move to next player
+            if (room.gameState.currentTurn === socket.id) {
+              game.endTurn(roomId);
+            }
+
+            // Check if game should end due to insufficient players
+            if (Object.keys(room.players).length < game.MIN_PLAYERS) {
+              room.gameState.gameStarted = false;
+              clearInterval(room.timerInterval);
+              clearInterval(room.roundInterval);
+            }
+
+            io.to(roomId).emit("gameState", game.getGameState(roomId));
+            
+            // Clean up empty rooms
+            if (Object.keys(room.players).length === 0) {
+              delete game.rooms[roomId];
+            }
+          }
         }
+      } catch (error) {
+        console.error('Error handling disconnect:', error);
       }
     });
   });

@@ -12,6 +12,10 @@ class SurvivalPathGame {
     this.WINNING_POINTS = 20;
     this.BOARD_SIZE = 45;
     this.BOARD_COLUMNS = 9;
+    this.MAX_PLAYERS = 6;
+    this.publicRooms = new Set();
+    this.roomPasswords = new Map();
+    this.aiPlayers = new Map();
   }
 
   /**
@@ -54,17 +58,31 @@ class SurvivalPathGame {
    * Creates a new game room.
    * @param {string} roomId - The room ID.
    */
-  createRoom(roomId) {
+  createRoom(roomId, isPublic = false, password = null) {
     if (this.rooms[roomId]) {
       throw new Error(`Room with ID ${roomId} already exists.`);
     }
+    
     this.rooms[roomId] = {
       gameState: this.setup(),
       players: {},
       timerInterval: null,
       roundInterval: null,
+      isPublic,
+      hasStarted: false,
+      hostId: null,
+      disconnectedPlayers: new Set(),
     };
-    console.log(`Room ${roomId} created.`);
+
+    if (isPublic) {
+      this.publicRooms.add(roomId);
+    }
+    
+    if (password) {
+      this.roomPasswords.set(roomId, password);
+    }
+    
+    console.log(`Room ${roomId} created. Public: ${isPublic}`);
   }
 
   /**
@@ -73,14 +91,28 @@ class SurvivalPathGame {
    * @param {string} playerId - The player ID.
    * @param {string} username - The player's username.
    */
-  addPlayerToRoom(roomId, playerId, username) {
+  addPlayerToRoom(roomId, playerId, username, password = null) {
     const room = this.rooms[roomId];
+    
     if (!room) {
       throw new Error(`Room with ID ${roomId} does not exist.`);
     }
 
-    if (room.players[playerId]) {
-      throw new Error(`Player ${username} is already in the room.`);
+    if (room.hasStarted) {
+      throw new Error("Game has already started");
+    }
+
+    if (Object.keys(room.players).length >= this.MAX_PLAYERS) {
+      throw new Error("Room is full");
+    }
+
+    if (this.roomPasswords.has(roomId) && password !== this.roomPasswords.get(roomId)) {
+      throw new Error("Invalid room password");
+    }
+
+    // Set first player as host
+    if (Object.keys(room.players).length === 0) {
+      room.hostId = playerId;
     }
 
     const newPlayer = {
@@ -90,21 +122,15 @@ class SurvivalPathGame {
       score: 0,
       hand: this.drawCards(roomId, 3),
       roundWins: 0,
+      isHost: room.hostId === playerId,
     };
 
     room.players[playerId] = newPlayer;
     room.gameState.turnOrder.push(playerId);
 
-    if (Object.keys(room.players).length >= this.MIN_PLAYERS) {
-      room.gameState.gameStarted = true;
-      this.startRound(roomId);
-    }
-
     if (room.gameState.turnOrder.length === 1) {
       room.gameState.currentTurn = playerId;
     }
-
-    console.log(`Player ${username} added to room ${roomId}.`);
   }
 
   /**
@@ -119,11 +145,14 @@ class SurvivalPathGame {
   playCard(roomId, playerId, cardIndex, targetPlayerId = null, direction = 'forward') {
     const room = this.rooms[roomId];
     if (!room) throw new Error(`Room with ID ${roomId} does not exist.`);
+    if (!room.gameState.gameStarted) throw new Error(`Game has not started yet.`);
 
     const player = room.players[playerId];
     if (!player) throw new Error(`Player with ID ${playerId} not found in room ${roomId}.`);
+    if (player.hand.length <= cardIndex || cardIndex < 0) throw new Error(`Invalid card index.`);
 
     if (room.gameState.currentTurn !== playerId) throw new Error(`It's not your turn.`);
+    if (room.gameState.winner) throw new Error(`Game has already ended.`);
 
     const card = player.hand[cardIndex];
     if (!card) throw new Error(`Invalid card index.`);
@@ -189,10 +218,16 @@ class SurvivalPathGame {
     const room = this.rooms[roomId];
     const player = room.players[playerId];
 
+    if (!room || !player) throw new Error("Invalid room or player");
+    if (!card || !card.effect) throw new Error("Invalid card data");
+
     switch (card.effect) {
       case "Swap Places":
         if (!targetPlayerId || !room.players[targetPlayerId]) {
           throw new Error("Must select a valid target player for Swap Places");
+        }
+        if (targetPlayerId === playerId) {
+          throw new Error("Cannot swap places with yourself");
         }
         const targetPlayer = room.players[targetPlayerId];
         const tempPosition = player.position;
@@ -337,6 +372,11 @@ class SurvivalPathGame {
    */
   handleMindPlayCard(roomId, playerId, targetPlayerId, card) {
     const room = this.rooms[roomId];
+    if (!room || !room.players[playerId]) throw new Error("Invalid room or player");
+    if (!targetPlayerId || !room.players[targetPlayerId]) throw new Error("Invalid target player");
+    if (targetPlayerId === playerId) throw new Error("Cannot target yourself");
+    if (!card || !card.effect) throw new Error("Invalid card data");
+
     const targetPlayer = room.players[targetPlayerId];
 
     switch (card.effect) {
@@ -355,6 +395,7 @@ class SurvivalPathGame {
         break;
 
       case "Steal 5 Points":
+        if (targetPlayer.score <= 0) throw new Error("Target player has no points to steal");
         const stolenPoints = Math.min(targetPlayer.score, card.value);
         targetPlayer.score -= stolenPoints;
         room.players[playerId].score += stolenPoints;
@@ -362,15 +403,11 @@ class SurvivalPathGame {
         break;
 
       case "Steal A Random Card From Opponent":
-        console.log("Loaded card effects:", this.cards.map(card => card.effect));
-        if (targetPlayer.hand.length > 0) {
-          const randomIndex = Math.floor(Math.random() * targetPlayer.hand.length);
-          const stolenCard = targetPlayer.hand.splice(randomIndex, 1)[0];
-          room.players[playerId].hand.push(stolenCard);
-          console.log(`${playerId} stole a random card from ${targetPlayer.username}.`);
-        } else {
-          console.log(`${targetPlayer.username} has no cards to steal.`);
-        }
+        if (targetPlayer.hand.length === 0) throw new Error("Target player has no cards to steal");
+        const randomIndex = Math.floor(Math.random() * targetPlayer.hand.length);
+        const stolenCard = targetPlayer.hand.splice(randomIndex, 1)[0];
+        room.players[playerId].hand.push(stolenCard);
+        console.log(`${playerId} stole a random card from ${targetPlayer.username}.`);
         break;
 
       default:
@@ -547,6 +584,77 @@ class SurvivalPathGame {
     room.gameState.winner = gameWinner;
     clearInterval(room.roundInterval);
     clearInterval(room.timerInterval);
+  }
+
+  startGame(roomId) {
+    const room = this.rooms[roomId];
+    if (!room) return;
+
+    if (Object.keys(room.players).length < this.MIN_PLAYERS) {
+      throw new Error("Not enough players to start");
+    }
+
+    room.hasStarted = true;
+    room.gameState.gameStarted = true;
+    this.startRound(roomId);
+  }
+
+  handleDisconnectedPlayer(roomId, playerId) {
+    const room = this.rooms[roomId];
+    if (!room) return;
+
+    if (room.hasStarted) {
+      room.disconnectedPlayers.add(playerId);
+      this.aiPlayers.set(playerId, {
+        strategy: "random",
+        originalPlayer: room.players[playerId]
+      });
+    } else {
+      delete room.players[playerId];
+      const turnOrderIndex = room.gameState.turnOrder.indexOf(playerId);
+      if (turnOrderIndex > -1) {
+        room.gameState.turnOrder.splice(turnOrderIndex, 1);
+      }
+    }
+  }
+
+  playAITurn(roomId, playerId) {
+    const room = this.rooms[roomId];
+    if (!room || !this.aiPlayers.has(playerId)) return;
+
+    const player = room.players[playerId];
+    if (!player || !player.hand.length) return;
+
+    // Random card selection
+    const cardIndex = Math.floor(Math.random() * player.hand.length);
+    const card = player.hand[cardIndex];
+
+    // Random target selection if needed
+    let targetPlayerId = null;
+    if (card.type === "Mind Play" || (card.type === "Event" && card.effect === "Swap Places")) {
+      const possibleTargets = Object.keys(room.players).filter(id => id !== playerId);
+      if (possibleTargets.length) {
+        targetPlayerId = possibleTargets[Math.floor(Math.random() * possibleTargets.length)];
+      }
+    }
+
+    // Random direction for move cards
+    const direction = card.type === "Move" ? (Math.random() > 0.5 ? "forward" : "backward") : undefined;
+
+    return this.playCard(roomId, playerId, cardIndex, targetPlayerId, direction);
+  }
+
+  getPublicRooms() {
+    return Array.from(this.publicRooms)
+      .filter(roomId => {
+        const room = this.rooms[roomId];
+        return room && !room.hasStarted && Object.keys(room.players).length < this.MAX_PLAYERS;
+      })
+      .map(roomId => ({
+        roomId,
+        playerCount: Object.keys(this.rooms[roomId].players).length,
+        maxPlayers: this.MAX_PLAYERS
+      }));
   }
 }
 
