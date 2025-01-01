@@ -401,7 +401,12 @@ class SurvivalPathGame {
     // Start new timer
     room.timerInterval = setInterval(() => {
       room.gameState.timer--;
-      io.to(roomId).emit("timerUpdate", { timer: room.gameState.timer });
+      
+      // Emit timer update to all players in the room
+      io.to(roomId).emit("gameState", {
+        ...this.getGameState(roomId),
+        timer: room.gameState.timer
+      });
 
       if (room.gameState.timer <= 0) {
         clearInterval(room.timerInterval);
