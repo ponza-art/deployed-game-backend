@@ -161,33 +161,16 @@ function handleSocketConnection(io) {
         for (const roomId in game.rooms) {
           const room = game.rooms[roomId];
           if (room?.players[socket.id]) {
-            // Remove player from room
-            delete room.players[socket.id];
-            
-            // Remove player from turn order
-            const turnOrderIndex = room.gameState.turnOrder.indexOf(socket.id);
-            if (turnOrderIndex > -1) {
-              room.gameState.turnOrder.splice(turnOrderIndex, 1);
-            }
+            // Instead of removing player, mark them as AI-controlled
+            game.handleDisconnectedPlayer(roomId, socket.id);
 
             // If it was this player's turn, move to next player
             if (room.gameState.currentTurn === socket.id) {
               game.endTurn(roomId);
             }
 
-            // Check if game should end due to insufficient players
-            if (Object.keys(room.players).length < game.MIN_PLAYERS) {
-              room.gameState.gameStarted = false;
-              clearInterval(room.timerInterval);
-              clearInterval(room.roundInterval);
-            }
-
+            io.to(roomId).emit("playerDisconnected", socket.id);
             io.to(roomId).emit("gameState", game.getGameState(roomId));
-            
-            // Clean up empty rooms
-            if (Object.keys(room.players).length === 0) {
-              delete game.rooms[roomId];
-            }
           }
         }
       } catch (error) {
