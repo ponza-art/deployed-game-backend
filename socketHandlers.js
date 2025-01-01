@@ -169,10 +169,23 @@ function handleSocketConnection(io) {
               game.endTurn(roomId);
             }
 
-            io.to(roomId).emit("playerDisconnected", socket.id);
-            io.to(roomId).emit("gameState", game.getGameState(roomId));
+            // Check if room is empty after player disconnection
+            const remainingPlayers = Object.keys(room.players).length;
+            if (remainingPlayers === 0) {
+              // Clean up room data
+              delete game.rooms[roomId];
+              game.publicRooms.delete(roomId);
+              game.roomPasswords.delete(roomId);
+              console.log(`Room ${roomId} removed due to no players`);
+            } else {
+              io.to(roomId).emit("playerDisconnected", socket.id);
+              io.to(roomId).emit("gameState", game.getGameState(roomId));
+            }
           }
         }
+
+        // Update public rooms list for all clients
+        io.emit("publicRoomsUpdate", game.getPublicRooms());
       } catch (error) {
         console.error('Error handling disconnect:', error);
       }
